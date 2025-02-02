@@ -36,6 +36,109 @@ public class FogOfWarManager : MonoBehaviour
         SetupFog();
     }
 
+    void CreateGridOverlay()
+    {
+        // 1. Creamos un objeto vacío para la malla de líneas
+        GameObject gridOverlay = new GameObject("GridOverlay");
+        gridOverlay.transform.SetParent(transform);
+
+        // 2. Agregamos los componentes de malla
+        MeshFilter mf = gridOverlay.AddComponent<MeshFilter>();
+        MeshRenderer mr = gridOverlay.AddComponent<MeshRenderer>();
+
+        // 3. Creamos la malla para las líneas
+        Mesh mesh = new Mesh();
+        mesh.name = "GridLinesMesh";
+
+        // Calculamos el área donde dibujaremos las líneas
+        float startX = terrainBounds.min.x;
+        float startZ = terrainBounds.min.z;
+        float endX = terrainBounds.min.x + texWidth * tileSize;
+        float endZ = terrainBounds.min.z + texHeight * tileSize;
+
+        // Cantidad de líneas: verticales (texWidth+1) y horizontales (texHeight+1)
+        int verticalLines = texWidth + 1;
+        int horizontalLines = texHeight + 1;
+        // Cada línea necesita 2 vértices, por lo que:
+        int totalLines = verticalLines + horizontalLines;
+        int vertexCount = totalLines * 2;
+
+        Vector3[] vertices = new Vector3[vertexCount];
+        int[] indices = new int[vertexCount];
+
+        int idx = 0;
+
+        // Líneas verticales
+        for (int i = 0; i < verticalLines; i++)
+        {
+            float x = startX + i * tileSize;
+
+            // Primer vértice de la línea
+            vertices[idx] = new Vector3(
+                x,
+                terrainBounds.max.y + offsetY + 0.02f,
+                startZ
+            );
+            indices[idx] = idx;
+            idx++;
+
+            // Segundo vértice
+            vertices[idx] = new Vector3(
+                x,
+                terrainBounds.max.y + offsetY + 0.02f,
+                endZ
+            );
+            indices[idx] = idx;
+            idx++;
+        }
+
+        // Líneas horizontales
+        for (int j = 0; j < horizontalLines; j++)
+        {
+            float z = startZ + j * tileSize;
+
+            // Primer vértice
+            vertices[idx] = new Vector3(
+                startX,
+                terrainBounds.max.y + offsetY + 0.02f,
+                z
+            );
+            indices[idx] = idx;
+            idx++;
+
+            // Segundo vértice
+            vertices[idx] = new Vector3(
+                endX,
+                terrainBounds.max.y + offsetY + 0.02f,
+                z
+            );
+            indices[idx] = idx;
+            idx++;
+        }
+
+        // Asignamos vértices e índices a la malla
+        mesh.vertices = vertices;
+        mesh.SetIndices(indices, MeshTopology.Lines, 0);
+
+        // Asignar la malla al MeshFilter
+        mf.mesh = mesh;
+
+        // 4. Creamos un material semitransparente para las líneas
+        Material gridMat = new Material(Shader.Find("Unlit/Transparent"));
+        // Color blanco con alpha=0.25 (ajusta a gusto)
+        gridMat.color = new Color(1f, 1f, 1f, 0.25f);
+        // Opcional: hacer que se pinte por encima de la niebla
+        gridMat.renderQueue = 2000; // un poco por encima de la niebla (3000)
+
+        mr.material = gridMat;
+
+        // Si prefieres que la cuadrícula quede POR DEBAJO de la niebla
+        // (y la niebla la cubra en las zonas no reveladas),
+        // podrías setear un renderQueue menor, p.ej. 2000 (Geometry)
+        // gridMat.renderQueue = 2000;
+    }
+
+
     /// <summary>
     /// Crea un material con un shader URP Unlit o Unlit/Transparent en el pipeline estándar.
     /// Ajusta el color para que la textura se muestre correctamente (blanco/1,1,1,1) si es transparente.
@@ -48,7 +151,7 @@ public class FogOfWarManager : MonoBehaviour
         if (GraphicsSettings.currentRenderPipeline != null)
         {
             // URP
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            Shader shader = Shader.Find("Custom/FoWShader");
             mat = new Material(shader);
             // Forzamos el modo transparente
             mat.SetOverrideTag("RenderType", "Transparent");
@@ -117,6 +220,7 @@ public class FogOfWarManager : MonoBehaviour
 
         CreateFogQuad();
         CreateHighlightQuad();
+        CreateGridOverlay();
     }
 
     void CreateFogQuad()
