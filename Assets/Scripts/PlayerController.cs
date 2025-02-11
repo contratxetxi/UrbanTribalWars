@@ -8,11 +8,12 @@ public class PlayerController : MonoBehaviour
     public BoardManager board;          // Referencia al BoardManager
     public float moveSpeed = 5f;        // Velocidad de movimiento de la cápsula
     public int maxMovement = 3;         // Número máximo de casillas que puede recorrer por turno
+    public int revealRadius = 3;        // Radio de casillas a descubrir alrededor del jugador
 
     private Vector2Int currentTilePos;  // Posición actual del jugador en la cuadrícula
     private List<Tile> currentPath;     // Camino actualmente resaltado
 
-    IEnumerator  Start()
+    IEnumerator Start()
     {
         // Esperar hasta que el tablero esté generado
         while (board.tiles == null)
@@ -22,17 +23,17 @@ public class PlayerController : MonoBehaviour
 
         currentTilePos = new Vector2Int(0, 0);
 
-        // Espera a que el tablero esté generado
-        if (board.tiles != null && board.GetTile(currentTilePos.x, currentTilePos.y) != null)
+        Tile startTile = board.GetTile(currentTilePos.x, currentTilePos.y);
+        if (startTile != null)
         {
-            transform.position = board.GetTile(currentTilePos.x, currentTilePos.y).transform.position;
-            board.RevealTilesAt(currentTilePos.x, currentTilePos.y);
+            startTile.SetDiscovered(true);          // Asegura que la casilla inicial esté descubierta
+            board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius); // Descubre las casillas adyacentes
+            transform.position = startTile.transform.position;
         }
         else
         {
-            Debug.LogError("El tablero no se ha generado correctamente.");
+            Debug.LogError("La casilla inicial no existe.");
         }
-
     }
 
     void Update()
@@ -52,8 +53,8 @@ public class PlayerController : MonoBehaviour
             if (tile != null && tile.discovered)
             {
                 List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-                // Se comprueba que el camino exista y que la cantidad de casillas a recorrer no exceda el límite.
-                if (path != null && (path.Count - 1) <= maxMovement)
+                // Se comprueba que el camino exista, que la cantidad de casillas no exceda el límite y que no haya obstáculos.
+                if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
                 {
                     ClearPathHighlight();
                     currentPath = path;
@@ -91,23 +92,42 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // Movimiento animado a lo largo del camino calculado.
-    IEnumerator MoveAlongPath(List<Tile> path)
+    // Verifica si el camino está libre de obstáculos.
+    bool PathIsClear(List<Tile> path)
     {
         foreach (Tile t in path)
         {
+            Vector3 position = t.transform.position;
+            if (Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos")))
+            {
+                return false;  // Hay un obstáculo en este tile
+            }
+        }
+        return true;  // El camino está libre
+    }
+
+    // Movimiento animado a lo largo del camino calculado.
+    IEnumerator MoveAlongPath(List<Tile> path)
+    {
+        Rigidbody rb = GetComponent<Rigidbody>();
+
+        foreach (Tile t in path)
+        {
             Vector3 targetPos = t.transform.position;
-            // Se mantiene la altura actual del jugador
-            targetPos.y = transform.position.y;
+            targetPos.y = transform.position.y;  // Mantener la altura
+
             while (Vector3.Distance(transform.position, targetPos) > 0.1f)
             {
-                transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
+                Vector3 newPos = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
+                rb.MovePosition(newPos);
                 yield return null;
             }
-            transform.position = targetPos;
+
+            rb.MovePosition(targetPos);  // Asegurar la posición final exacta
             currentTilePos = new Vector2Int(t.gridX, t.gridY);
-            board.RevealTilesAt(currentTilePos.x, currentTilePos.y);
+            board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
         }
+
         ClearPathHighlight();
         yield return null;
     }
@@ -162,6 +182,9 @@ public class PlayerController : MonoBehaviour
                 Tile nextTile = board.GetTile(next.x, next.y);
                 if (nextTile == null || !nextTile.discovered)
                     continue; // Solo se pueden transitar casillas descubiertas
+                if (Physics.CheckBox(nextTile.transform.position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos")))
+                    continue; // Saltar si hay un obstáculo
+
                 int newCost = costSoFar[current] + 1;
                 if (!costSoFar.ContainsKey(next) || newCost < costSoFar[next])
                 {

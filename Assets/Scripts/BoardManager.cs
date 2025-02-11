@@ -18,15 +18,8 @@ public class BoardManager : MonoBehaviour
         GenerateBoard();
     }
 
-    // Genera la cuadrícula de casillas y las posiciona sobre el plano.
     void GenerateBoard()
     {
-        if (tilePrefab == null)
-        {
-            Debug.LogError("TilePrefab no está asignado en el BoardManager.");
-            return;
-        }
-
         tiles = new Tile[columns, rows];
 
         for (int x = 0; x < columns; x++)
@@ -37,30 +30,26 @@ public class BoardManager : MonoBehaviour
                 GameObject tileGO = Instantiate(tilePrefab, tilePos, Quaternion.identity, transform);
                 Tile tile = tileGO.GetComponent<Tile>();
 
-                if (tile == null)
-                {
-                    Debug.LogError($"Tile prefab no tiene el script Tile.cs en ({x},{y}).");
-                    continue;
-                }
-
                 tile.gridX = x;
                 tile.gridY = y;
-                tile.SetDiscovered(false);
+                tile.SetDiscovered(false); // Todas las casillas comienzan ocultas
                 tiles[x, y] = tile;
 
-                // Vincular cualquier objeto que esté en esa casilla
-                Collider[] objectsOnTile = Physics.OverlapBox(tilePos, new Vector3(tileSize / 2, 0.5f, tileSize / 2));
+                // Vincular objetos en la casilla
+                Collider[] objectsOnTile = Physics.OverlapBox(tilePos, new Vector3(0.5f, 0.5f, 0.5f));
                 foreach (Collider col in objectsOnTile)
                 {
                     TileObject obj = col.GetComponent<TileObject>();
                     if (obj != null)
                     {
-                        obj.SetParentTile(tile);
+                        tile.AssignTileObject(obj);
                     }
                 }
             }
         }
     }
+
+
 
 
     // Devuelve la casilla ubicada en (x, y) o null si está fuera de rango.
@@ -72,18 +61,21 @@ public class BoardManager : MonoBehaviour
     }
 
     // Revela la casilla en (x, y) y sus casillas adyacentes (se puede ajustar el radio de revelado).
-    public void RevealTilesAt(int x, int y)
+    // Revela la casilla en (x, y) y sus casillas adyacentes según el radio de revelado.
+    public void RevealTilesAt(int x, int y, int revealRadius = 1)
     {
-        for (int i = -1; i <= 1; i++)
+        for (int i = -revealRadius; i <= revealRadius; i++)
         {
-            for (int j = -1; j <= 1; j++)
+            for (int j = -revealRadius; j <= revealRadius; j++)
             {
                 Tile t = GetTile(x + i, y + j);
                 if (t != null && !t.discovered)
                 {
+                    Debug.Log($"Tile({t.gridX}, {t.gridY}) descubierto.");
                     t.SetDiscovered(true);
                 }
             }
         }
     }
+
 }
