@@ -12,6 +12,8 @@ public class PlayerController : MonoBehaviour
 
     private Vector2Int currentTilePos;  // Posición actual del jugador en la cuadrícula
     private List<Tile> currentPath;     // Camino actualmente resaltado
+    private bool isMoving = false; // Indica si el jugador está en movimiento
+
 
     IEnumerator Start()
     {
@@ -21,19 +23,62 @@ public class PlayerController : MonoBehaviour
             yield return null;
         }
 
-        currentTilePos = new Vector2Int(0, 0);
+        // Obtener una casilla válida
+        Tile startTile = GetStartTile();
 
-        Tile startTile = board.GetTile(currentTilePos.x, currentTilePos.y);
         if (startTile != null)
         {
-            startTile.SetDiscovered(true);          // Asegura que la casilla inicial esté descubierta
-            board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius); // Descubre las casillas adyacentes
-            transform.position = startTile.transform.position;
+            currentTilePos = new Vector2Int(startTile.gridX, startTile.gridY);
+            startTile.SetDiscovered(true);
+            board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
+
+            // Ajustar la posición del jugador al tile seleccionado
+            transform.position = startTile.transform.position + Vector3.up * 0.5f; // Levanta el jugador un poco sobre el tile
         }
         else
         {
-            Debug.LogError("La casilla inicial no existe.");
+            Debug.LogError("No se pudo encontrar una casilla válida para generar al jugador.");
         }
+    }
+
+    Tile GetStartTile()
+    {
+        int startX = -1; // Coordenadas específicas (opcional)
+        int startY = -1;
+
+        // Si se ha definido una posición específica, validarla antes de usarla.
+        if (startX >= 0 && startY >= 0)
+        {
+            Tile specificTile = board.GetTile(startX, startY);
+            if (specificTile != null && !IsTileBlocked(specificTile))
+            {
+                return specificTile;
+            }
+        }
+
+        // Si no se ha definido una posición, elegir una aleatoria sin obstáculos
+        List<Tile> validTiles = new List<Tile>();
+
+        foreach (Tile tile in board.tiles)
+        {
+            if (tile != null && !IsTileBlocked(tile)) // Solo agregar tiles sin obstáculos
+            {
+                validTiles.Add(tile);
+            }
+        }
+
+        if (validTiles.Count > 0)
+        {
+            return validTiles[Random.Range(0, validTiles.Count)];
+        }
+
+        return null; // No hay tiles válidos disponibles
+    }
+
+    bool IsTileBlocked(Tile tile)
+    {
+        Vector3 position = tile.transform.position;
+        return Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos"));
     }
 
     void Update()
@@ -45,6 +90,8 @@ public class PlayerController : MonoBehaviour
     // Al mover el ratón, se detecta sobre qué casilla se posiciona y se calcula el camino desde la posición actual.
     void HandleMouseHover()
     {
+        if (isMoving) return; // No resaltar camino si el jugador está moviéndose
+
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
         if (Physics.Raycast(ray, out hit))
@@ -53,7 +100,6 @@ public class PlayerController : MonoBehaviour
             if (tile != null && tile.discovered)
             {
                 List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-                // Se comprueba que el camino exista, que la cantidad de casillas no exceda el límite y que no haya obstáculos.
                 if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
                 {
                     ClearPathHighlight();
@@ -69,9 +115,12 @@ public class PlayerController : MonoBehaviour
         ClearPathHighlight();
     }
 
+
     // Al hacer clic se verifica que la casilla clickeada sea el destino del camino resaltado.
     void HandleMouseClick()
     {
+        if (isMoving) return; // No permitir clics si el jugador está moviéndose
+
         if (Input.GetMouseButtonDown(0) && currentPath != null && currentPath.Count > 0)
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
@@ -81,7 +130,6 @@ public class PlayerController : MonoBehaviour
                 Tile tile = hit.collider.GetComponent<Tile>();
                 if (tile != null && tile.discovered)
                 {
-                    // Si la casilla clickeada es el último nodo del camino resaltado, se inicia el movimiento.
                     if (tile.gridX == currentPath[currentPath.Count - 1].gridX &&
                         tile.gridY == currentPath[currentPath.Count - 1].gridY)
                     {
@@ -91,6 +139,7 @@ public class PlayerController : MonoBehaviour
             }
         }
     }
+
 
     // Verifica si el camino está libre de obstáculos.
     bool PathIsClear(List<Tile> path)
@@ -109,6 +158,8 @@ public class PlayerController : MonoBehaviour
     // Movimiento animado a lo largo del camino calculado.
     IEnumerator MoveAlongPath(List<Tile> path)
     {
+        isMoving = true; // Bloquear selección de nuevos caminos
+
         Rigidbody rb = GetComponent<Rigidbody>();
 
         foreach (Tile t in path)
@@ -123,14 +174,16 @@ public class PlayerController : MonoBehaviour
                 yield return null;
             }
 
-            rb.MovePosition(targetPos);  // Asegurar la posición final exacta
+            rb.MovePosition(targetPos); // Asegurar la posición final exacta
             currentTilePos = new Vector2Int(t.gridX, t.gridY);
             board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
         }
 
+        isMoving = false; // Desbloquear selección de nuevos caminos
         ClearPathHighlight();
         yield return null;
     }
+
 
     // Quita el resaltado de las casillas del camino actual.
     void ClearPathHighlight()

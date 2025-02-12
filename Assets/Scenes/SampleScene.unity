@@ -231,7 +231,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: c631d0c2e39a55c41a40a97d32c2c3f2, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -289,6 +289,7 @@ GameObject:
   - component: {fileID: 330585545}
   - component: {fileID: 330585544}
   - component: {fileID: 330585547}
+  - component: {fileID: 330585548}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -414,6 +415,22 @@ MonoBehaviour:
     m_MipBias: 0
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
+--- !u!114 &330585548
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: caf7a26cc7f772b489f5b8f1a661ebb0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  player: {fileID: 1814910006}
+  moveSpeed: 10
+  scrollSpeed: 5
+  defaultOffset: {x: 10, y: 10, z: -10}
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -548,7 +565,7 @@ GameObject:
   - component: {fileID: 587385459}
   - component: {fileID: 587385458}
   - component: {fileID: 587385461}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Cube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -656,6 +673,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cdb84ec63838e7b4490f083e6e2f0880, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  isDiscovered: 0
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -735,7 +753,7 @@ Transform:
   m_GameObject: {fileID: 1814910005}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.004363274, z: 0, w: 0.9999905}
-  m_LocalPosition: {x: 1.3395644, y: 0.9417895, z: -0.76681626}
+  m_LocalPosition: {x: 1.3395644, y: 1.11, z: -0.76681626}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -843,7 +861,7 @@ Rigidbody:
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 112
-  m_CollisionDetection: 0
+  m_CollisionDetection: 1
 --- !u!114 &1814910011
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -858,7 +876,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   board: {fileID: 153310571}
   moveSpeed: 5
-  maxMovement: 3
+  maxMovement: 6
+  revealRadius: 3
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

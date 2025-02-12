@@ -22,17 +22,22 @@ public class BoardManager : MonoBehaviour
     {
         tiles = new Tile[columns, rows];
 
+        // Calcular el offset para centrar el tablero
+        float offsetX = (columns - 1) / 2f;
+        float offsetY = (rows - 1) / 2f;
+
         for (int x = 0; x < columns; x++)
         {
             for (int y = 0; y < rows; y++)
             {
-                Vector3 tilePos = new Vector3(x, 0, y);
+                // Ajustar la posición del tile con respecto al centro
+                Vector3 tilePos = new Vector3(x - offsetX, 0, y - offsetY);
                 GameObject tileGO = Instantiate(tilePrefab, tilePos, Quaternion.identity, transform);
                 Tile tile = tileGO.GetComponent<Tile>();
 
                 tile.gridX = x;
                 tile.gridY = y;
-                tile.SetDiscovered(false); // Todas las casillas comienzan ocultas
+                tile.SetDiscovered(false);
                 tiles[x, y] = tile;
 
                 // Vincular objetos en la casilla
@@ -48,6 +53,7 @@ public class BoardManager : MonoBehaviour
             }
         }
     }
+
 
 
 

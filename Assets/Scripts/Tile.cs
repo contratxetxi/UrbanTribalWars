@@ -1,6 +1,7 @@
 using UnityEngine;
 
-public class Tile : MonoBehaviour {
+public class Tile : MonoBehaviour
+{
     public int gridX;
     public int gridY;
     public float tileSize;
@@ -9,45 +10,76 @@ public class Tile : MonoBehaviour {
     private TileObject tileObject;
 
     private Renderer rend;
-    private Collider col; // Añadido para controlar el Collider
+    private Collider col;
+
     private Color originalColor;
     public Color highlightColor = Color.yellow;
+    private Color hiddenColor = new Color(0, 0, 0, 1f); // Negro opaco
+    private Color transparentColor = new Color(1f, 1f, 1f, 0.1f); // Blanco con % de opacidad
 
-    void Awake() {
+    void Awake()
+    {
         rend = GetComponent<Renderer>();
-        col = GetComponent<Collider>(); // Referencia al Collider
-        originalColor = rend.material.color;
+        col = GetComponent<Collider>();
+
+        // Crear y configurar el material para transparencia
+        Material transparentMat = new Material(Shader.Find("Unlit/Transparent"));
+        transparentMat.color = transparentColor;
+        rend.material = transparentMat;  // Asignar el material transparente
+
+        SetDiscovered(false);  // Iniciar el tile oculto
     }
 
-    public void SetDiscovered(bool state) {
-        if (discovered == state) return; // Evitar llamadas redundantes
 
+
+
+    public void SetDiscovered(bool state)
+    {
         discovered = state;
 
-        // Controlar la visibilidad y la colisión
-        if (rend != null)
-            rend.enabled = state;   // Oculta o muestra la casilla
-        if (col != null)
-            col.enabled = state;    // Impide interactuar si está oculta
+        rend.material = null;
 
-        // Notificar al objeto asociado
-        if (tileObject != null && state && !tileObject.isDiscovered) {
+        if (state)
+        {
+            rend.material.color = transparentColor;
+        }
+        else
+        {
+            rend.material.color = hiddenColor;
+        }
+
+
+        if (col != null)
+        {
+            col.enabled = state;
+        }
+
+        if (tileObject != null && state && !tileObject.isDiscovered)
+        {
             tileObject.Discover();
         }
     }
 
-    public void AssignTileObject(TileObject obj) {
+
+    public void AssignTileObject(TileObject obj)
+    {
         tileObject = obj;
         tileObject.AddParentTile(this);
     }
 
-    public void Highlight() {
+    public void Highlight()
+    {
         if (discovered && rend != null)
-            rend.material.color = highlightColor;
+        {
+            rend.material.color = highlightColor; // Resaltar en amarillo
+        }
     }
 
-    public void UnHighlight() {
-        if (rend != null)
-            rend.material.color = originalColor;
+    public void UnHighlight()
+    {
+        if (discovered && rend != null)
+        {
+            rend.material.color = transparentColor; // Volver a la transparencia al dejar de resaltar
+        }
     }
 }
