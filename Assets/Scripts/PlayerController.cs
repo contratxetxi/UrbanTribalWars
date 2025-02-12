@@ -78,8 +78,11 @@ public class PlayerController : MonoBehaviour
     bool IsTileBlocked(Tile tile)
     {
         Vector3 position = tile.transform.position;
-        return Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos"));
+        bool hasObstacle = Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos"));
+
+        return hasObstacle; // Devuelve true si hay un obstáculo en la casilla
     }
+
 
     void Update()
     {
@@ -146,14 +149,14 @@ public class PlayerController : MonoBehaviour
     {
         foreach (Tile t in path)
         {
-            Vector3 position = t.transform.position;
-            if (Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos")))
+            if (IsTileBlocked(t))
             {
-                return false;  // Hay un obstáculo en este tile
+                return false;  // Si hay un obstáculo en este tile, el camino no es válido
             }
         }
         return true;  // El camino está libre
     }
+
 
     // Movimiento animado a lo largo del camino calculado.
     IEnumerator MoveAlongPath(List<Tile> path)
@@ -203,11 +206,10 @@ public class PlayerController : MonoBehaviour
     {
         if (start == end)
         {
-            List<Tile> singlePath = new List<Tile>();
-            Tile startTile = board.GetTile(start.x, start.y);
-            singlePath.Add(startTile);
+            List<Tile> singlePath = new List<Tile> { board.GetTile(start.x, start.y) };
             return singlePath;
         }
+
         Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
         Dictionary<Vector2Int, int> costSoFar = new Dictionary<Vector2Int, int>();
         PriorityQueue<Vector2Int> frontier = new PriorityQueue<Vector2Int>();
@@ -230,12 +232,11 @@ public class PlayerController : MonoBehaviour
                 path.Reverse();
                 return path;
             }
+
             foreach (Vector2Int next in GetNeighbors(current))
             {
                 Tile nextTile = board.GetTile(next.x, next.y);
-                if (nextTile == null || !nextTile.discovered)
-                    continue; // Solo se pueden transitar casillas descubiertas
-                if (Physics.CheckBox(nextTile.transform.position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos")))
+                if (nextTile == null || IsTileBlocked(nextTile))
                     continue; // Saltar si hay un obstáculo
 
                 int newCost = costSoFar[current] + 1;
@@ -248,7 +249,8 @@ public class PlayerController : MonoBehaviour
                 }
             }
         }
-        return null;  // No se encontró camino
+
+        return null;  // No se encontró un camino válido
     }
 
     int Heuristic(Vector2Int a, Vector2Int b)
