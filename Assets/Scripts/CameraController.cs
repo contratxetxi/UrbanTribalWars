@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class CameraController : MonoBehaviour
 {
-    public Transform player; // Referencia al personaje
+    private Transform player; // Referencia al personaje
     public float moveSpeed = 10f; // Velocidad de movimiento de la cámara
     public float scrollSpeed = 5f; // Velocidad del zoom
     public Vector3 defaultOffset = new Vector3(10, 10, -10); // Offset por defecto
@@ -41,8 +41,19 @@ public class CameraController : MonoBehaviour
         }
     }
 
+    public void SetPlayer(Transform playerTransform)
+    {
+        player = playerTransform;
+        followPlayer = true;
+        transform.position = player.position + offset;
+        transform.LookAt(player.position);
+    }
+
+
     void LateUpdate()
     {
+        if (player == null) return; // No hacer nada si no hay jugador
+
         if (followPlayer)
         {
             targetPosition = player.position + offset;

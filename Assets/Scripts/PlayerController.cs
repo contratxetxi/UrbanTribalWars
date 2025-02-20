@@ -5,7 +5,7 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour
 {
     [Header("Configuración del Jugador")]
-    public BoardManager board;          // Referencia al BoardManager
+    internal BoardManager board;          // Referencia al BoardManager
     public float moveSpeed = 5f;        // Velocidad de movimiento de la cápsula
     public int maxMovement = 3;         // Número máximo de casillas que puede recorrer por turno
     public int revealRadius = 3;        // Radio de casillas a descubrir alrededor del jugador
@@ -14,6 +14,7 @@ public class PlayerController : MonoBehaviour
     private List<Tile> currentPath;     // Camino actualmente resaltado
     private bool isMoving = false; // Indica si el jugador está en movimiento
 
+    private Animator animator;
 
     IEnumerator Start()
     {
@@ -22,6 +23,8 @@ public class PlayerController : MonoBehaviour
         {
             yield return null;
         }
+
+        animator = GetComponent<Animator>();
 
         // Obtener una casilla válida
         Tile startTile = GetStartTile();
@@ -40,6 +43,12 @@ public class PlayerController : MonoBehaviour
             Debug.LogError("No se pudo encontrar una casilla válida para generar al jugador.");
         }
     }
+
+    public void SetBoardManager(BoardManager boardManager)
+    {
+        board = boardManager;
+    }
+
 
     Tile GetStartTile()
     {
@@ -157,36 +166,66 @@ public class PlayerController : MonoBehaviour
         return true;  // El camino está libre
     }
 
-
-    // Movimiento animado a lo largo del camino calculado.
     IEnumerator MoveAlongPath(List<Tile> path)
     {
-        isMoving = true; // Bloquear selección de nuevos caminos
-
+        isMoving = true;
         Rigidbody rb = GetComponent<Rigidbody>();
+
+        animator.SetBool("isWalking", true);
 
         foreach (Tile t in path)
         {
             Vector3 targetPos = t.transform.position;
-            targetPos.y = transform.position.y;  // Mantener la altura
+            // Mantén la altura del jugador
+            targetPos.y = transform.position.y;
 
+            // Mientras no lleguemos al tile
             while (Vector3.Distance(transform.position, targetPos) > 0.1f)
             {
-                Vector3 newPos = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
+                // 1) Calcular dirección “plana” (sin inclinaciones en Y)
+                Vector3 direction = targetPos - transform.position;
+                direction.y = 0f; // Evitar inclinación vertical
+
+                // 2) Rotación suave cada frame
+                if (direction.sqrMagnitude > 0.0001f)
+                {
+                    Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
+                    // Ajusta rotationSpeed según la rapidez que quieras para girar
+                    float rotationSpeed = 10f;
+                    transform.rotation = Quaternion.Slerp(
+                        transform.rotation,
+                        targetRotation,
+                        rotationSpeed * Time.deltaTime
+                    );
+                }
+
+                // 3) Movimiento suave hacia el objetivo
+                Vector3 newPos = Vector3.MoveTowards(
+                    transform.position,
+                    targetPos,
+                    moveSpeed * Time.deltaTime
+                );
                 rb.MovePosition(newPos);
+
+                // Esperar 1 frame
                 yield return null;
             }
 
-            rb.MovePosition(targetPos); // Asegurar la posición final exacta
+            // Asegurarnos de la posición final exacta
+            rb.MovePosition(targetPos);
+
+            // Actualizar posicion en grid
             currentTilePos = new Vector2Int(t.gridX, t.gridY);
             board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
         }
 
-        isMoving = false; // Desbloquear selección de nuevos caminos
-        ClearPathHighlight();
-        yield return null;
-    }
+        // Pequeña pausa antes de desactivar la animación
+        yield return new WaitForSeconds(0.1f);
 
+        animator.SetBool("isWalking", false);
+        isMoving = false;
+        ClearPathHighlight();
+    }
 
     // Quita el resaltado de las casillas del camino actual.
     void ClearPathHighlight()
