@@ -3,6 +3,7 @@ using UnityEngine;
 public class CameraController : MonoBehaviour
 {
     private Transform player; // Referencia al personaje
+    public BoardManager boardManager; // Referencia al BoardManager
     public float moveSpeed = 10f; // Velocidad de movimiento de la cámara
     public float scrollSpeed = 5f; // Velocidad del zoom
     public Vector3 defaultOffset = new Vector3(10, 10, -10); // Offset por defecto
@@ -12,10 +13,29 @@ public class CameraController : MonoBehaviour
     public float minZoom = 5f; // Mínimo zoom permitido
     public float maxZoom = 50f; // Máximo zoom permitido
 
+    // Límites del tablero
+    private float minX, maxX, minZ, maxZ;
+
     void Start()
     {
         // Inicializar el offset con el valor por defecto
         offset = defaultOffset;
+
+        // Obtener los límites del tablero si el BoardManager está asignado
+        if (boardManager != null)
+        {
+            float halfWidth = boardManager.columns / 2f;
+            float halfHeight = boardManager.rows / 2f;
+
+            minX = -halfWidth;
+            maxX = halfWidth;
+            minZ = -halfHeight - 5f;
+            maxZ = halfHeight - 20f;
+        }
+        else
+        {
+            Debug.LogWarning("CameraController: No se ha asignado un BoardManager.");
+        }
 
         // Verificar si hay un jugador antes de acceder a su posición
         if (player != null)
@@ -40,7 +60,15 @@ public class CameraController : MonoBehaviour
         if (Input.GetKey(KeyCode.A)) moveDirection += Vector3.left; // Oeste
         if (Input.GetKey(KeyCode.D)) moveDirection += Vector3.right; // Este
 
+        // Aplicar el movimiento
         transform.position += moveDirection * moveSpeed * Time.deltaTime;
+
+        // **Restringir la cámara dentro de los límites del tablero**
+        transform.position = new Vector3(
+            Mathf.Clamp(transform.position.x, minX, maxX),
+            transform.position.y, // No restringimos la altura aquí (se maneja con el zoom)
+            Mathf.Clamp(transform.position.z, minZ, maxZ)
+        );
 
         // **Zoom con la rueda del ratón**
         float scroll = Input.GetAxis("Mouse ScrollWheel");
@@ -49,8 +77,8 @@ public class CameraController : MonoBehaviour
             Vector3 zoomDirection = transform.forward * scroll * scrollSpeed;
             Vector3 newPosition = transform.position + zoomDirection;
 
-            // **Comprobar distancia desde la posición actual al tablero**
-            float currentHeight = newPosition.y; // La altura de la cámara
+            // **Limitar el zoom dentro de los valores permitidos**
+            float currentHeight = newPosition.y;
             if (currentHeight >= minZoom && currentHeight <= maxZoom)
             {
                 transform.position = newPosition;
@@ -69,7 +97,7 @@ public class CameraController : MonoBehaviour
     {
         player = playerTransform;
         followPlayer = true;
-        
+
         if (player != null)
         {
             transform.position = player.position + offset; // Mantiene el zoom actual
@@ -86,6 +114,13 @@ public class CameraController : MonoBehaviour
             targetPosition = player.position + offset; // Mantiene el offset actual
             transform.position = Vector3.Lerp(transform.position, targetPosition, Time.deltaTime * moveSpeed);
             transform.LookAt(player.position);
+
+            // **Mantener la cámara dentro de los límites al seguir al jugador**
+            transform.position = new Vector3(
+                Mathf.Clamp(transform.position.x, minX, maxX),
+                transform.position.y,
+                Mathf.Clamp(transform.position.z, minZ, maxZ)
+            );
         }
 
         // Si el jugador mueve la cámara con WASD, deja de seguir al personaje
