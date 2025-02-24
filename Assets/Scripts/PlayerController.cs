@@ -10,6 +10,8 @@ public class PlayerController : MonoBehaviour
     public int maxMovement = 3;         // Número máximo de casillas que puede recorrer por turno
     public int revealRadius = 3;        // Radio de casillas a descubrir alrededor del jugador
 
+    public bool isActive = false;
+
     private Vector2Int currentTilePos;  // Posición actual del jugador en la cuadrícula
     private List<Tile> currentPath;     // Camino actualmente resaltado
     private bool isMoving = false; // Indica si el jugador está en movimiento
@@ -95,6 +97,8 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        if (!isActive) return;
+
         HandleMouseHover();
         HandleMouseClick();
     }
@@ -129,27 +133,136 @@ public class PlayerController : MonoBehaviour
 
 
     // Al hacer clic se verifica que la casilla clickeada sea el destino del camino resaltado.
+    // void HandleMouseClick()
+    // {
+    //     if (isMoving) return; // No permitir clics si el jugador está moviéndose
+
+    //     if (Input.GetMouseButtonDown(0) && currentPath != null && currentPath.Count > 0)
+    //     {
+    //         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+    //         RaycastHit hit;
+    //         if (Physics.Raycast(ray, out hit))
+    //         {
+    //             Tile tile = hit.collider.GetComponent<Tile>();
+    //             if (tile != null && tile.discovered)
+    //             {
+    //                 if (tile.gridX == currentPath[currentPath.Count - 1].gridX &&
+    //                     tile.gridY == currentPath[currentPath.Count - 1].gridY)
+    //                 {
+    //                     StartCoroutine(MoveAlongPath(currentPath));
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
     void HandleMouseClick()
     {
         if (isMoving) return; // No permitir clics si el jugador está moviéndose
 
-        if (Input.GetMouseButtonDown(0) && currentPath != null && currentPath.Count > 0)
+        if (Input.GetMouseButtonDown(0))
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
             RaycastHit hit;
             if (Physics.Raycast(ray, out hit))
             {
+                PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
+
+                // 🏹 Caso 1: Clic sobre otro jugador (ataque)
+                if (targetPlayer != null && targetPlayer != this) // No atacarse a sí mismo
+                {
+                    // Obtener la posición en la cuadrícula del enemigo
+                    Vector2Int targetTilePos = targetPlayer.currentTilePos;
+                    float distanceToTarget = Vector2Int.Distance(currentTilePos, targetTilePos);
+
+                    if (distanceToTarget <= maxMovement) // Verificar si está dentro del rango de movimiento
+                    {
+                        List<Tile> path = FindPath(currentTilePos, targetTilePos);
+
+                        if (path != null && PathIsClear(path))
+                        {
+                            StartCoroutine(MoveAndAttack(path, targetPlayer));
+                            return; // Evitar procesar otro caso
+                        }
+                    }
+                }
+
+                // 🚶‍♂️ Caso 2: Clic sobre una casilla normal (mover sin atacar)
                 Tile tile = hit.collider.GetComponent<Tile>();
                 if (tile != null && tile.discovered)
                 {
-                    if (tile.gridX == currentPath[currentPath.Count - 1].gridX &&
-                        tile.gridY == currentPath[currentPath.Count - 1].gridY)
+                    List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
+
+                    if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
                     {
-                        StartCoroutine(MoveAlongPath(currentPath));
+                        StartCoroutine(MoveAlongPath(path));
                     }
                 }
             }
         }
+    }
+
+    IEnumerator MoveAndAttack(List<Tile> path, PlayerController target)
+    {
+        isMoving = true;
+        animator.SetBool("isWalking", true);
+
+        foreach (Tile t in path)
+        {
+            Vector3 targetPos = t.transform.position;
+            targetPos.y = transform.position.y; // Mantener altura
+
+            while (Vector3.Distance(transform.position, targetPos) > 0.1f)
+            {
+                Vector3 direction = targetPos - transform.position;
+                direction.y = 0f; // No cambiar la altura
+
+                if (direction.sqrMagnitude > 0.0001f)
+                {
+                    Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 10f * Time.deltaTime);
+                }
+
+                transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
+                yield return null;
+            }
+
+            currentTilePos = new Vector2Int(t.gridX, t.gridY);
+            board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
+        }
+
+        animator.SetBool("isWalking", false);
+        isMoving = false;
+
+        // Una vez que llegó al objetivo, iniciar el ataque
+        if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f) // Ajustar según tamaño
+        {
+            StartCoroutine(Attack(target));
+        }
+    }
+
+
+    IEnumerator Attack(PlayerController target)
+    {
+        // Ejecutar la animación de ataque
+        animator.SetTrigger("AttackTrigger");
+
+        yield return new WaitForSeconds(0.5f); // Ajusta según la duración de la animación de ataque
+
+        // Verificar si el objetivo sigue en rango
+        if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f)
+        {
+            // Aplicar daño y hacer que el objetivo ejecute la animación de daño
+            target.TakeDamage();
+        }
+
+        yield return new WaitForSeconds(0.5f); // Pequeña pausa antes de continuar
+    }
+
+
+    public void TakeDamage()
+    {
+        animator.SetTrigger("GetDamageTrigger");
+        Debug.Log(name + " ha recibido daño.");
     }
 
 
