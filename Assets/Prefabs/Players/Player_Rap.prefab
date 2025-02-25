@@ -143,4 +143,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   moveSpeed: 5
   maxMovement: 3
-  revealRadius: 3
+  revealRadius: 6
+  isActive: 0

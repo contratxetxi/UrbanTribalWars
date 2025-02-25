@@ -27,7 +27,7 @@ public class CameraController : MonoBehaviour
             minX = -halfWidth;
             maxX = halfWidth;
             minZ = -halfHeight - 5f;
-            maxZ = halfHeight - 25f;
+            maxZ = halfHeight - 15f;
         }
         else
         {

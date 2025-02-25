@@ -6,15 +6,15 @@ public class PlayerController : MonoBehaviour
 {
     [Header("Configuración del Jugador")]
     internal BoardManager board;          // Referencia al BoardManager
-    public float moveSpeed = 5f;        // Velocidad de movimiento de la cápsula
-    public int maxMovement = 3;         // Número máximo de casillas que puede recorrer por turno
-    public int revealRadius = 3;        // Radio de casillas a descubrir alrededor del jugador
+    public float moveSpeed = 5f;          // Velocidad de movimiento de la cápsula
+    public int maxMovement = 3;           // Número máximo de casillas que puede recorrer por turno
+    public int revealRadius = 6;          // Radio de casillas a descubrir alrededor del jugador
 
     public bool isActive = false;
 
-    private Vector2Int currentTilePos;  // Posición actual del jugador en la cuadrícula
-    private List<Tile> currentPath;     // Camino actualmente resaltado
-    private bool isMoving = false; // Indica si el jugador está en movimiento
+    private Vector2Int currentTilePos;    // Posición actual del jugador en la cuadrícula
+    private List<Tile> currentPath;         // Camino actualmente resaltado
+    private bool isMoving = false;          // Indica si el jugador está en movimiento
 
     private Animator animator;
 
@@ -51,28 +51,48 @@ public class PlayerController : MonoBehaviour
         board = boardManager;
     }
 
+    // MÉTODOS DE DISPONIBILIDAD DE CASILLAS
 
+    // Comprueba si una casilla está ocupada por otro jugador (ignorando, opcionalmente, al propio)
+    bool IsTileOccupied(Tile tile, PlayerController ignore = null)
+    {
+        Collider[] colliders = Physics.OverlapBox(tile.transform.position, new Vector3(0.3f, 0.3f, 0.3f), Quaternion.identity, LayerMask.GetMask("Players"));
+        foreach (Collider col in colliders)
+        {
+            PlayerController p = col.GetComponent<PlayerController>();
+            if (p != null && p != ignore)
+                return true;
+        }
+        return false;
+    }
+
+    // Comprueba si la casilla está libre de obstáculos y jugadores.
+    bool IsTileAvailable(Tile tile, PlayerController ignore = null)
+    {
+        return !IsTileBlocked(tile) && !IsTileOccupied(tile, ignore);
+    }
+
+    // Se utiliza para generar el tile inicial. Ahora se comprueba que esté disponible.
     Tile GetStartTile()
     {
         int startX = -1; // Coordenadas específicas (opcional)
         int startY = -1;
 
-        // Si se ha definido una posición específica, validarla antes de usarla.
         if (startX >= 0 && startY >= 0)
         {
             Tile specificTile = board.GetTile(startX, startY);
-            if (specificTile != null && !IsTileBlocked(specificTile))
+            if (specificTile != null && IsTileAvailable(specificTile))
             {
                 return specificTile;
             }
         }
 
-        // Si no se ha definido una posición, elegir una aleatoria sin obstáculos
+        // Si no se ha definido una posición, elegir una aleatoria sin obstáculos y sin otro jugador.
         List<Tile> validTiles = new List<Tile>();
 
         foreach (Tile tile in board.tiles)
         {
-            if (tile != null && !IsTileBlocked(tile)) // Solo agregar tiles sin obstáculos
+            if (tile != null && IsTileAvailable(tile))
             {
                 validTiles.Add(tile);
             }
@@ -86,14 +106,27 @@ public class PlayerController : MonoBehaviour
         return null; // No hay tiles válidos disponibles
     }
 
+    // Método original que solo comprobaba obstáculos.
     bool IsTileBlocked(Tile tile)
     {
         Vector3 position = tile.transform.position;
         bool hasObstacle = Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos"));
-
-        return hasObstacle; // Devuelve true si hay un obstáculo en la casilla
+        return hasObstacle;
     }
 
+    // Comprueba que cada casilla del camino esté disponible. Para ataques se puede ignorar la última (ocupada por el enemigo).
+    bool PathIsClear(List<Tile> path, bool ignoreLastTile = false)
+    {
+        int count = path.Count;
+        if (ignoreLastTile)
+            count--; // Se ignora la última casilla (objetivo)
+        for (int i = 0; i < count; i++)
+        {
+            if (!IsTileAvailable(path[i], this))
+                return false;
+        }
+        return true;
+    }
 
     void Update()
     {
@@ -103,7 +136,7 @@ public class PlayerController : MonoBehaviour
         HandleMouseClick();
     }
 
-    // Al mover el ratón, se detecta sobre qué casilla se posiciona y se calcula el camino desde la posición actual.
+    // AL PASAR EL RATÓN: Resalta el camino.
     void HandleMouseHover()
     {
         if (isMoving) return; // No resaltar camino si el jugador está moviéndose
@@ -112,6 +145,32 @@ public class PlayerController : MonoBehaviour
         RaycastHit hit;
         if (Physics.Raycast(ray, out hit))
         {
+            // Si el rayo golpea a otro jugador, se asume que es para ataque.
+            PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
+            if (targetPlayer != null && targetPlayer != this)
+            {
+                // Permitir que se calcule el camino aunque el tile del enemigo esté ocupado.
+                List<Tile> fullPath = FindPath(currentTilePos, targetPlayer.currentTilePos, true);
+                if (fullPath != null && fullPath.Count > 1)
+                {
+                    // Se elimina el último tile (ocupado por el enemigo) para obtener la casilla de ataque.
+                    List<Tile> attackPath = new List<Tile>(fullPath);
+                    attackPath.RemoveAt(attackPath.Count - 1);
+                    if ((attackPath.Count - 1) <= maxMovement && PathIsClear(attackPath))
+                    {
+                        ClearPathHighlight();
+                        currentPath = attackPath;
+                        // Se resalta el camino en rojo (suponiendo que Tile tiene HighlightRed())
+                        foreach (Tile t in currentPath)
+                        {
+                            t.HighlightAttack();
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // Caso de movimiento normal: se ha golpeado una casilla.
             Tile tile = hit.collider.GetComponent<Tile>();
             if (tile != null && tile.discovered)
             {
@@ -122,7 +181,7 @@ public class PlayerController : MonoBehaviour
                     currentPath = path;
                     foreach (Tile t in currentPath)
                     {
-                        t.Highlight();
+                        t.HighlightWalk();
                     }
                     return;
                 }
@@ -131,30 +190,7 @@ public class PlayerController : MonoBehaviour
         ClearPathHighlight();
     }
 
-
-    // Al hacer clic se verifica que la casilla clickeada sea el destino del camino resaltado.
-    // void HandleMouseClick()
-    // {
-    //     if (isMoving) return; // No permitir clics si el jugador está moviéndose
-
-    //     if (Input.GetMouseButtonDown(0) && currentPath != null && currentPath.Count > 0)
-    //     {
-    //         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-    //         RaycastHit hit;
-    //         if (Physics.Raycast(ray, out hit))
-    //         {
-    //             Tile tile = hit.collider.GetComponent<Tile>();
-    //             if (tile != null && tile.discovered)
-    //             {
-    //                 if (tile.gridX == currentPath[currentPath.Count - 1].gridX &&
-    //                     tile.gridY == currentPath[currentPath.Count - 1].gridY)
-    //                 {
-    //                     StartCoroutine(MoveAlongPath(currentPath));
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+    // AL HACER CLIC: Se decide si mover o atacar.
     void HandleMouseClick()
     {
         if (isMoving) return; // No permitir clics si el jugador está moviéndose
@@ -165,33 +201,29 @@ public class PlayerController : MonoBehaviour
             RaycastHit hit;
             if (Physics.Raycast(ray, out hit))
             {
+                // Caso de ataque: se hace clic sobre otro jugador.
                 PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
-
-                // 🏹 Caso 1: Clic sobre otro jugador (ataque)
-                if (targetPlayer != null && targetPlayer != this) // No atacarse a sí mismo
+                if (targetPlayer != null && targetPlayer != this)
                 {
-                    // Obtener la posición en la cuadrícula del enemigo
-                    Vector2Int targetTilePos = targetPlayer.currentTilePos;
-                    float distanceToTarget = Vector2Int.Distance(currentTilePos, targetTilePos);
-
-                    if (distanceToTarget <= maxMovement) // Verificar si está dentro del rango de movimiento
+                    // Permitir que se calcule el camino incluso si la casilla del enemigo está ocupada.
+                    List<Tile> fullPath = FindPath(currentTilePos, targetPlayer.currentTilePos, true);
+                    if (fullPath != null && fullPath.Count > 1)
                     {
-                        List<Tile> path = FindPath(currentTilePos, targetTilePos);
-
-                        if (path != null && PathIsClear(path))
+                        List<Tile> attackPath = new List<Tile>(fullPath);
+                        attackPath.RemoveAt(attackPath.Count - 1);
+                        if ((attackPath.Count - 1) <= maxMovement && PathIsClear(attackPath))
                         {
-                            StartCoroutine(MoveAndAttack(path, targetPlayer));
+                            StartCoroutine(MoveAndAttack(attackPath, targetPlayer));
                             return; // Evitar procesar otro caso
                         }
                     }
                 }
 
-                // 🚶‍♂️ Caso 2: Clic sobre una casilla normal (mover sin atacar)
+                // Caso de movimiento normal: se hace clic sobre una casilla.
                 Tile tile = hit.collider.GetComponent<Tile>();
                 if (tile != null && tile.discovered)
                 {
                     List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-
                     if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
                     {
                         StartCoroutine(MoveAlongPath(path));
@@ -233,50 +265,29 @@ public class PlayerController : MonoBehaviour
         animator.SetBool("isWalking", false);
         isMoving = false;
 
-        // Una vez que llegó al objetivo, iniciar el ataque
-        if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f) // Ajustar según tamaño
+        // Una vez que llegó a la casilla adyacente, iniciar el ataque si el objetivo está a rango.
+        if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f)
         {
             StartCoroutine(Attack(target));
         }
     }
 
-
     IEnumerator Attack(PlayerController target)
     {
-        // Ejecutar la animación de ataque
         animator.SetTrigger("AttackTrigger");
+        yield return new WaitForSeconds(0.5f); // Duración de la animación de ataque
 
-        yield return new WaitForSeconds(0.5f); // Ajusta según la duración de la animación de ataque
-
-        // Verificar si el objetivo sigue en rango
         if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f)
         {
-            // Aplicar daño y hacer que el objetivo ejecute la animación de daño
             target.TakeDamage();
         }
-
-        yield return new WaitForSeconds(0.5f); // Pequeña pausa antes de continuar
+        yield return new WaitForSeconds(0.5f);
     }
-
 
     public void TakeDamage()
     {
         animator.SetTrigger("GetDamageTrigger");
         Debug.Log(name + " ha recibido daño.");
-    }
-
-
-    // Verifica si el camino está libre de obstáculos.
-    bool PathIsClear(List<Tile> path)
-    {
-        foreach (Tile t in path)
-        {
-            if (IsTileBlocked(t))
-            {
-                return false;  // Si hay un obstáculo en este tile, el camino no es válido
-            }
-        }
-        return true;  // El camino está libre
     }
 
     IEnumerator MoveAlongPath(List<Tile> path)
@@ -288,53 +299,42 @@ public class PlayerController : MonoBehaviour
 
         foreach (Tile t in path)
         {
+            // Revalida que la casilla sigue libre antes de movernos a ella.
+            if (!IsTileAvailable(t, this))
+            {
+                Debug.Log("El camino se ha bloqueado en la casilla (" + t.gridX + ", " + t.gridY + "). Movimiento cancelado.");
+                animator.SetBool("isWalking", false);
+                isMoving = false;
+                ClearPathHighlight();
+                yield break;
+            }
+
             Vector3 targetPos = t.transform.position;
-            // Mantén la altura del jugador
             targetPos.y = transform.position.y;
 
-            // Mientras no lleguemos al tile
             while (Vector3.Distance(transform.position, targetPos) > 0.1f)
             {
-                // 1) Calcular dirección “plana” (sin inclinaciones en Y)
                 Vector3 direction = targetPos - transform.position;
-                direction.y = 0f; // Evitar inclinación vertical
+                direction.y = 0f;
 
-                // 2) Rotación suave cada frame
                 if (direction.sqrMagnitude > 0.0001f)
                 {
                     Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
-                    // Ajusta rotationSpeed según la rapidez que quieras para girar
                     float rotationSpeed = 10f;
-                    transform.rotation = Quaternion.Slerp(
-                        transform.rotation,
-                        targetRotation,
-                        rotationSpeed * Time.deltaTime
-                    );
+                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
                 }
 
-                // 3) Movimiento suave hacia el objetivo
-                Vector3 newPos = Vector3.MoveTowards(
-                    transform.position,
-                    targetPos,
-                    moveSpeed * Time.deltaTime
-                );
+                Vector3 newPos = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
                 rb.MovePosition(newPos);
-
-                // Esperar 1 frame
                 yield return null;
             }
 
-            // Asegurarnos de la posición final exacta
             rb.MovePosition(targetPos);
-
-            // Actualizar posicion en grid
             currentTilePos = new Vector2Int(t.gridX, t.gridY);
             board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
         }
 
-        // Pequeña pausa antes de desactivar la animación
         yield return new WaitForSeconds(0.1f);
-
         animator.SetBool("isWalking", false);
         isMoving = false;
         ClearPathHighlight();
@@ -353,8 +353,8 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // Implementación de un algoritmo A* para encontrar el camino en la cuadrícula.
-    List<Tile> FindPath(Vector2Int start, Vector2Int end)
+    // IMPLEMENTACIÓN DEL ALGORITMO A* CON OPCIÓN DE PERMITIR CASILLA FINAL OCUPADA (para ataques)
+    List<Tile> FindPath(Vector2Int start, Vector2Int end, bool allowEndOccupied = false)
     {
         if (start == end)
         {
@@ -388,8 +388,15 @@ public class PlayerController : MonoBehaviour
             foreach (Vector2Int next in GetNeighbors(current))
             {
                 Tile nextTile = board.GetTile(next.x, next.y);
-                if (nextTile == null || IsTileBlocked(nextTile))
-                    continue; // Saltar si hay un obstáculo
+                if (nextTile == null)
+                    continue;
+
+                // Si el vecino no es la casilla final o no se permite que esté ocupado, se debe estar disponible.
+                if (next != end || !allowEndOccupied)
+                {
+                    if (!IsTileAvailable(nextTile))
+                        continue;
+                }
 
                 int newCost = costSoFar[current] + 1;
                 if (!costSoFar.ContainsKey(next) || newCost < costSoFar[next])
@@ -405,19 +412,26 @@ public class PlayerController : MonoBehaviour
         return null;  // No se encontró un camino válido
     }
 
+    // Calcula la distancia en 8 direcciones.
     int Heuristic(Vector2Int a, Vector2Int b)
     {
-        return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
+        int dx = Mathf.Abs(a.x - b.x);
+        int dy = Mathf.Abs(a.y - b.y);
+        return Mathf.Max(dx, dy);
     }
 
-    // Retorna las casillas vecinas (en 4 direcciones) de una posición dada.
+    // Retorna las casillas vecinas (en 8 direcciones) de una posición dada.
     List<Vector2Int> GetNeighbors(Vector2Int pos)
     {
         List<Vector2Int> neighbors = new List<Vector2Int> {
             new Vector2Int(pos.x + 1, pos.y),
             new Vector2Int(pos.x - 1, pos.y),
             new Vector2Int(pos.x, pos.y + 1),
-            new Vector2Int(pos.x, pos.y - 1)
+            new Vector2Int(pos.x, pos.y - 1),
+            new Vector2Int(pos.x + 1, pos.y + 1),
+            new Vector2Int(pos.x + 1, pos.y - 1),
+            new Vector2Int(pos.x - 1, pos.y + 1),
+            new Vector2Int(pos.x - 1, pos.y - 1)
         };
         return neighbors;
     }
