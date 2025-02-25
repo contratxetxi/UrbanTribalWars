@@ -12,9 +12,6 @@ public class Tile : MonoBehaviour
     private Renderer rend;
     private Collider col;
 
-    private Color originalColor;
-    public Color highlightColor = Color.yellow;
-    public Color highlightAttack = Color.yellow;
     private Color hiddenColor = new Color(0, 0, 0, 1f); // Negro opaco
     private Color transparentColor = new Color(1f, 1f, 1f, 0.1f); // Blanco con % de opacidad
 

@@ -16,10 +16,16 @@ public class PlayerController : MonoBehaviour
     private List<Tile> currentPath;         // Camino actualmente resaltado
     private bool isMoving = false;          // Indica si el jugador está en movimiento
 
+    // Tile del enemigo que se resaltó (si lo hay)
+    private Tile highlightedEnemyTile = null;
+
     private Animator animator;
 
     IEnumerator Start()
     {
+        // Ignorar colisiones entre jugadores (asegúrate que todos los jugadores estén en el layer "Players")
+        Physics.IgnoreLayerCollision(LayerMask.NameToLayer("Players"), LayerMask.NameToLayer("Players"), true);
+
         // Esperar hasta que el tablero esté generado
         while (board.tiles == null)
         {
@@ -38,7 +44,7 @@ public class PlayerController : MonoBehaviour
             board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
 
             // Ajustar la posición del jugador al tile seleccionado
-            transform.position = startTile.transform.position + Vector3.up * 0.5f; // Levanta el jugador un poco sobre el tile
+            transform.position = startTile.transform.position + Vector3.up * 0.5f;
         }
         else
         {
@@ -51,12 +57,13 @@ public class PlayerController : MonoBehaviour
         board = boardManager;
     }
 
-    // MÉTODOS DE DISPONIBILIDAD DE CASILLAS
+    // ------------------------------
+    // MÉTODOS PARA VERIFICAR DISPONIBILIDAD
+    // ------------------------------
 
-    // Comprueba si una casilla está ocupada por otro jugador (ignorando, opcionalmente, al propio)
     bool IsTileOccupied(Tile tile, PlayerController ignore = null)
     {
-        Collider[] colliders = Physics.OverlapBox(tile.transform.position, new Vector3(0.3f, 0.3f, 0.3f), Quaternion.identity, LayerMask.GetMask("Players"));
+        Collider[] colliders = Physics.OverlapBox(tile.transform.position, new Vector3(0.5f, 0.5f, 0.5f), Quaternion.identity, LayerMask.GetMask("Players"));
         foreach (Collider col in colliders)
         {
             PlayerController p = col.GetComponent<PlayerController>();
@@ -66,16 +73,14 @@ public class PlayerController : MonoBehaviour
         return false;
     }
 
-    // Comprueba si la casilla está libre de obstáculos y jugadores.
     bool IsTileAvailable(Tile tile, PlayerController ignore = null)
     {
         return !IsTileBlocked(tile) && !IsTileOccupied(tile, ignore);
     }
 
-    // Se utiliza para generar el tile inicial. Ahora se comprueba que esté disponible.
     Tile GetStartTile()
     {
-        int startX = -1; // Coordenadas específicas (opcional)
+        int startX = -1; 
         int startY = -1;
 
         if (startX >= 0 && startY >= 0)
@@ -87,7 +92,6 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // Si no se ha definido una posición, elegir una aleatoria sin obstáculos y sin otro jugador.
         List<Tile> validTiles = new List<Tile>();
 
         foreach (Tile tile in board.tiles)
@@ -103,10 +107,9 @@ public class PlayerController : MonoBehaviour
             return validTiles[Random.Range(0, validTiles.Count)];
         }
 
-        return null; // No hay tiles válidos disponibles
+        return null;
     }
 
-    // Método original que solo comprobaba obstáculos.
     bool IsTileBlocked(Tile tile)
     {
         Vector3 position = tile.transform.position;
@@ -114,12 +117,11 @@ public class PlayerController : MonoBehaviour
         return hasObstacle;
     }
 
-    // Comprueba que cada casilla del camino esté disponible. Para ataques se puede ignorar la última (ocupada por el enemigo).
     bool PathIsClear(List<Tile> path, bool ignoreLastTile = false)
     {
         int count = path.Count;
         if (ignoreLastTile)
-            count--; // Se ignora la última casilla (objetivo)
+            count--;
         for (int i = 0; i < count; i++)
         {
             if (!IsTileAvailable(path[i], this))
@@ -128,159 +130,261 @@ public class PlayerController : MonoBehaviour
         return true;
     }
 
+    PlayerController GetPlayerOnTile(Tile tile)
+    {
+        Collider[] colliders = Physics.OverlapBox(tile.transform.position, new Vector3(0.5f, 0.5f, 0.5f), Quaternion.identity, LayerMask.GetMask("Players"));
+        foreach (Collider col in colliders)
+        {
+            PlayerController p = col.GetComponent<PlayerController>();
+            if (p != null && p != this)
+                return p;
+        }
+        return null;
+    }
+
+    // ------------------------------
+    // MÉTODO PARA CALCULAR CAMINO DE ATAQUE
+    // ------------------------------
+    List<Tile> GetAttackPath(PlayerController target)
+    {
+        if (Mathf.Max(Mathf.Abs(currentTilePos.x - target.currentTilePos.x), Mathf.Abs(currentTilePos.y - target.currentTilePos.y)) <= 1)
+        {
+            return new List<Tile>(); // Ya estamos adyacentes.
+        }
+
+        List<Tile> bestPath = null;
+        int bestLength = int.MaxValue;
+        Vector2Int enemyPos = target.currentTilePos;
+
+        List<Vector2Int> neighbors = GetNeighbors(enemyPos);
+        foreach (Vector2Int pos in neighbors)
+        {
+            Tile candidate = board.GetTile(pos.x, pos.y);
+            if (candidate == null || !candidate.discovered) continue;
+            if (!IsTileAvailable(candidate)) continue;
+            List<Tile> path = FindPath(currentTilePos, new Vector2Int(candidate.gridX, candidate.gridY), false);
+            if (path != null && (path.Count - 1) <= maxMovement)
+            {
+                if (path.Count < bestLength)
+                {
+                    bestLength = path.Count;
+                    bestPath = path;
+                }
+            }
+        }
+        return bestPath;
+    }
+
+    // ------------------------------
+    // UPDATE Y GESTIÓN DE INPUT
+    // ------------------------------
     void Update()
     {
         if (!isActive) return;
 
         HandleMouseHover();
-        HandleMouseClick();
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            HandleMouseClick();
+        }
     }
 
-    // AL PASAR EL RATÓN: Resalta el camino.
     void HandleMouseHover()
     {
-        if (isMoving) return; // No resaltar camino si el jugador está moviéndose
+        if (isMoving)
+        {
+            ClearPathHighlight();
+            return;
+        }
 
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
         if (Physics.Raycast(ray, out hit))
         {
-            // Si el rayo golpea a otro jugador, se asume que es para ataque.
             PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
             if (targetPlayer != null && targetPlayer != this)
             {
-                // Permitir que se calcule el camino aunque el tile del enemigo esté ocupado.
-                List<Tile> fullPath = FindPath(currentTilePos, targetPlayer.currentTilePos, true);
-                if (fullPath != null && fullPath.Count > 1)
+                List<Tile> attackPath = GetAttackPath(targetPlayer);
+                if (attackPath != null)
                 {
-                    // Se elimina el último tile (ocupado por el enemigo) para obtener la casilla de ataque.
-                    List<Tile> attackPath = new List<Tile>(fullPath);
-                    attackPath.RemoveAt(attackPath.Count - 1);
-                    if ((attackPath.Count - 1) <= maxMovement && PathIsClear(attackPath))
+                    ClearPathHighlight();
+                    currentPath = attackPath;
+                    foreach (Tile t in currentPath)
+                    {
+                        t.HighlightAttack();
+                    }
+                    Tile enemyTile = board.GetTile(targetPlayer.currentTilePos.x, targetPlayer.currentTilePos.y);
+                    if (enemyTile != null)
+                    {
+                        enemyTile.HighlightAttack();
+                        highlightedEnemyTile = enemyTile;
+                    }
+                    Vector3 directionToTarget = targetPlayer.transform.position - transform.position;
+                    directionToTarget.y = 0f;
+                    if (directionToTarget.sqrMagnitude > 0.001f)
+                    {
+                        Quaternion targetRotation = Quaternion.LookRotation(directionToTarget, Vector3.up);
+                        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 10f * Time.deltaTime);
+                    }
+                    return;
+                }
+            }
+
+            Tile tile = hit.collider.GetComponent<Tile>();
+            if (tile != null && tile.discovered)
+            {
+                PlayerController targetOnTile = GetPlayerOnTile(tile);
+                if (targetOnTile != null)
+                {
+                    List<Tile> attackPath = GetAttackPath(targetOnTile);
+                    if (attackPath != null)
                     {
                         ClearPathHighlight();
                         currentPath = attackPath;
-                        // Se resalta el camino en rojo (suponiendo que Tile tiene HighlightRed())
                         foreach (Tile t in currentPath)
                         {
                             t.HighlightAttack();
                         }
+                        Tile enemyTile = board.GetTile(targetOnTile.currentTilePos.x, targetOnTile.currentTilePos.y);
+                        if (enemyTile != null)
+                        {
+                            enemyTile.HighlightAttack();
+                            highlightedEnemyTile = enemyTile;
+                        }
+                        Vector3 directionToTarget = targetOnTile.transform.position - transform.position;
+                        directionToTarget.y = 0f;
+                        if (directionToTarget.sqrMagnitude > 0.001f)
+                        {
+                            Quaternion targetRotation = Quaternion.LookRotation(directionToTarget, Vector3.up);
+                            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 10f * Time.deltaTime);
+                        }
                         return;
                     }
                 }
-            }
-
-            // Caso de movimiento normal: se ha golpeado una casilla.
-            Tile tile = hit.collider.GetComponent<Tile>();
-            if (tile != null && tile.discovered)
-            {
-                List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-                if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
+                else
                 {
-                    ClearPathHighlight();
-                    currentPath = path;
-                    foreach (Tile t in currentPath)
+                    List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
+                    if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
                     {
-                        t.HighlightWalk();
+                        ClearPathHighlight();
+                        currentPath = path;
+                        foreach (Tile t in currentPath)
+                        {
+                            t.HighlightWalk();
+                        }
+                        return;
                     }
-                    return;
                 }
             }
         }
         ClearPathHighlight();
     }
 
-    // AL HACER CLIC: Se decide si mover o atacar.
     void HandleMouseClick()
     {
-        if (isMoving) return; // No permitir clics si el jugador está moviéndose
+        if (isMoving) return;
 
-        if (Input.GetMouseButtonDown(0))
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        RaycastHit hit;
+        if (Physics.Raycast(ray, out hit))
         {
-            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-            RaycastHit hit;
-            if (Physics.Raycast(ray, out hit))
+            PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
+            if (targetPlayer != null && targetPlayer != this)
             {
-                // Caso de ataque: se hace clic sobre otro jugador.
-                PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
-                if (targetPlayer != null && targetPlayer != this)
+                List<Tile> attackPath = GetAttackPath(targetPlayer);
+                if (attackPath != null)
                 {
-                    // Permitir que se calcule el camino incluso si la casilla del enemigo está ocupada.
-                    List<Tile> fullPath = FindPath(currentTilePos, targetPlayer.currentTilePos, true);
-                    if (fullPath != null && fullPath.Count > 1)
-                    {
-                        List<Tile> attackPath = new List<Tile>(fullPath);
-                        attackPath.RemoveAt(attackPath.Count - 1);
-                        if ((attackPath.Count - 1) <= maxMovement && PathIsClear(attackPath))
-                        {
-                            StartCoroutine(MoveAndAttack(attackPath, targetPlayer));
-                            return; // Evitar procesar otro caso
-                        }
-                    }
+                    StartCoroutine(MoveAndAttack(attackPath, targetPlayer));
+                    return;
                 }
-
-                // Caso de movimiento normal: se hace clic sobre una casilla.
+            }
+            else
+            {
                 Tile tile = hit.collider.GetComponent<Tile>();
                 if (tile != null && tile.discovered)
                 {
-                    List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-                    if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
+                    PlayerController targetOnTile = GetPlayerOnTile(tile);
+                    if (targetOnTile != null)
                     {
-                        StartCoroutine(MoveAlongPath(path));
+                        List<Tile> attackPath = GetAttackPath(targetOnTile);
+                        if (attackPath != null)
+                        {
+                            StartCoroutine(MoveAndAttack(attackPath, targetOnTile));
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
+                        if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
+                        {
+                            StartCoroutine(MoveAlongPath(path));
+                        }
                     }
                 }
             }
         }
     }
 
+    // Movimiento y ataque sin comprobar rango (se ataca siempre que se active el camino de ataque).
     IEnumerator MoveAndAttack(List<Tile> path, PlayerController target)
     {
         isMoving = true;
         animator.SetBool("isWalking", true);
 
-        foreach (Tile t in path)
+        if (path.Count == 0)
         {
-            Vector3 targetPos = t.transform.position;
-            targetPos.y = transform.position.y; // Mantener altura
-
-            while (Vector3.Distance(transform.position, targetPos) > 0.1f)
+            Vector3 finalDir = target.transform.position - transform.position;
+            finalDir.y = 0f;
+            if (finalDir.sqrMagnitude > 0.001f)
             {
-                Vector3 direction = targetPos - transform.position;
-                direction.y = 0f; // No cambiar la altura
+                transform.rotation = Quaternion.LookRotation(finalDir, Vector3.up);
+            }
+        }
+        else
+        {
+            foreach (Tile t in path)
+            {
+                Vector3 targetPos = t.transform.position;
+                targetPos.y = transform.position.y;
 
-                if (direction.sqrMagnitude > 0.0001f)
+                while (Vector3.Distance(transform.position, targetPos) > 0.1f)
                 {
-                    Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
-                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 10f * Time.deltaTime);
+                    Vector3 direction = targetPos - transform.position;
+                    direction.y = 0f;
+                    if (direction.sqrMagnitude > 0.0001f)
+                    {
+                        Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
+                        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 10f * Time.deltaTime);
+                    }
+                    transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
+                    yield return null;
                 }
-
-                transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
-                yield return null;
+                currentTilePos = new Vector2Int(t.gridX, t.gridY);
+                board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
             }
 
-            currentTilePos = new Vector2Int(t.gridX, t.gridY);
-            board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
+            Vector3 finalDirection = target.transform.position - transform.position;
+            finalDirection.y = 0f;
+            if (finalDirection.sqrMagnitude > 0.001f)
+            {
+                transform.rotation = Quaternion.LookRotation(finalDirection, Vector3.up);
+            }
         }
 
         animator.SetBool("isWalking", false);
         isMoving = false;
 
-        // Una vez que llegó a la casilla adyacente, iniciar el ataque si el objetivo está a rango.
-        if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f)
-        {
-            StartCoroutine(Attack(target));
-        }
+        // Se ataca siempre, independientemente de la distancia, ya que se basa en el tile ocupado.
+        StartCoroutine(Attack(target));
     }
 
     IEnumerator Attack(PlayerController target)
     {
         animator.SetTrigger("AttackTrigger");
-        yield return new WaitForSeconds(0.5f); // Duración de la animación de ataque
-
-        if (Vector3.Distance(transform.position, target.transform.position) <= 1.5f)
-        {
-            target.TakeDamage();
-        }
+        yield return new WaitForSeconds(0.5f);
+        target.TakeDamage();
         yield return new WaitForSeconds(0.5f);
     }
 
@@ -290,16 +394,15 @@ public class PlayerController : MonoBehaviour
         Debug.Log(name + " ha recibido daño.");
     }
 
+    // Movimiento normal.
     IEnumerator MoveAlongPath(List<Tile> path)
     {
         isMoving = true;
         Rigidbody rb = GetComponent<Rigidbody>();
-
         animator.SetBool("isWalking", true);
 
         foreach (Tile t in path)
         {
-            // Revalida que la casilla sigue libre antes de movernos a ella.
             if (!IsTileAvailable(t, this))
             {
                 Debug.Log("El camino se ha bloqueado en la casilla (" + t.gridX + ", " + t.gridY + "). Movimiento cancelado.");
@@ -316,14 +419,11 @@ public class PlayerController : MonoBehaviour
             {
                 Vector3 direction = targetPos - transform.position;
                 direction.y = 0f;
-
                 if (direction.sqrMagnitude > 0.0001f)
                 {
                     Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
-                    float rotationSpeed = 10f;
-                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 10f * Time.deltaTime);
                 }
-
                 Vector3 newPos = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
                 rb.MovePosition(newPos);
                 yield return null;
@@ -340,7 +440,6 @@ public class PlayerController : MonoBehaviour
         ClearPathHighlight();
     }
 
-    // Quita el resaltado de las casillas del camino actual.
     void ClearPathHighlight()
     {
         if (currentPath != null)
@@ -351,9 +450,16 @@ public class PlayerController : MonoBehaviour
             }
             currentPath = null;
         }
+        if (highlightedEnemyTile != null)
+        {
+            highlightedEnemyTile.UnHighlight();
+            highlightedEnemyTile = null;
+        }
     }
 
-    // IMPLEMENTACIÓN DEL ALGORITMO A* CON OPCIÓN DE PERMITIR CASILLA FINAL OCUPADA (para ataques)
+    // ------------------------------
+    // ALGORITMO A* (permitiendo casilla final ocupada para ataques)
+    // ------------------------------
     List<Tile> FindPath(Vector2Int start, Vector2Int end, bool allowEndOccupied = false)
     {
         if (start == end)
@@ -391,7 +497,6 @@ public class PlayerController : MonoBehaviour
                 if (nextTile == null)
                     continue;
 
-                // Si el vecino no es la casilla final o no se permite que esté ocupado, se debe estar disponible.
                 if (next != end || !allowEndOccupied)
                 {
                     if (!IsTileAvailable(nextTile))
@@ -408,11 +513,9 @@ public class PlayerController : MonoBehaviour
                 }
             }
         }
-
-        return null;  // No se encontró un camino válido
+        return null;
     }
 
-    // Calcula la distancia en 8 direcciones.
     int Heuristic(Vector2Int a, Vector2Int b)
     {
         int dx = Mathf.Abs(a.x - b.x);
@@ -420,7 +523,6 @@ public class PlayerController : MonoBehaviour
         return Mathf.Max(dx, dy);
     }
 
-    // Retorna las casillas vecinas (en 8 direcciones) de una posición dada.
     List<Vector2Int> GetNeighbors(Vector2Int pos)
     {
         List<Vector2Int> neighbors = new List<Vector2Int> {
