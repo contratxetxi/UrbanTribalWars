@@ -84,4 +84,73 @@ public class BoardManager : MonoBehaviour
         }
     }
 
+    // BoardManager.cs
+
+    public bool IsTileBlocked(Tile tile)
+    {
+        // Comprueba colisiones con la capa Obstaculos
+        Vector3 position = tile.transform.position;
+        bool hasObstacle = Physics.CheckBox(
+            position,
+            new Vector3(0.4f, 0.4f, 0.4f),
+            Quaternion.identity,
+            LayerMask.GetMask("Obstaculos")
+        );
+        return hasObstacle;
+    }
+
+    public bool IsTileOccupied(Tile tile, PlayerController ignore = null)
+    {
+        // Comprueba colisiones con la capa Players
+        Collider[] colliders = Physics.OverlapBox(
+            tile.transform.position,
+            new Vector3(0.5f, 0.5f, 0.5f),
+            Quaternion.identity,
+            LayerMask.GetMask("Players")
+        );
+        foreach (Collider col in colliders)
+        {
+            PlayerController p = col.GetComponent<PlayerController>();
+            if (p != null && p != ignore)
+                return true;
+        }
+        return false;
+    }
+
+    public bool IsTileAvailable(Tile tile, PlayerController ignore = null)
+    {
+        return !IsTileBlocked(tile) && !IsTileOccupied(tile, ignore);
+    }
+
+    public bool PathIsClear(List<Tile> path, PlayerController ignore = null, bool ignoreLastTile = false)
+    {
+        int count = path.Count;
+        if (ignoreLastTile)
+            count--;
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!IsTileAvailable(path[i], ignore))
+                return false;
+        }
+        return true;
+    }
+
+    public bool IsBoardFullyGenerated()
+    {
+        if (tiles == null || tiles.Length == 0)
+            return false;
+
+        for (int x = 0; x < columns; x++)
+        {
+            for (int y = 0; y < rows; y++)
+            {
+                if (tiles[x, y] == null) // Comprobamos si hay algún tile nulo
+                    return false;
+            }
+        }
+
+        return true; // Si todos los tiles son válidos, el tablero está listo
+    }
+
 }

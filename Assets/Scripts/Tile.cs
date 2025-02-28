@@ -80,7 +80,7 @@ public class Tile : MonoBehaviour
 
     public void HighlightAttack()
     {
-        Highlight(Color.red); // Resaltar en amarillo
+        Highlight(Color.red); // Resaltar en rojo
     }
 
     public void UnHighlight()

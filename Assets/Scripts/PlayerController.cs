@@ -27,7 +27,7 @@ public class PlayerController : MonoBehaviour
         Physics.IgnoreLayerCollision(LayerMask.NameToLayer("Players"), LayerMask.NameToLayer("Players"), true);
 
         // Esperar hasta que el tablero esté generado
-        while (board.tiles == null)
+        while (board.tiles == null || board.tiles.Length == 0 || !board.IsBoardFullyGenerated())
         {
             yield return null;
         }
@@ -52,41 +52,21 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+
     public void SetBoardManager(BoardManager boardManager)
     {
         board = boardManager;
     }
 
-    // ------------------------------
-    // MÉTODOS PARA VERIFICAR DISPONIBILIDAD
-    // ------------------------------
-
-    bool IsTileOccupied(Tile tile, PlayerController ignore = null)
-    {
-        Collider[] colliders = Physics.OverlapBox(tile.transform.position, new Vector3(0.5f, 0.5f, 0.5f), Quaternion.identity, LayerMask.GetMask("Players"));
-        foreach (Collider col in colliders)
-        {
-            PlayerController p = col.GetComponent<PlayerController>();
-            if (p != null && p != ignore)
-                return true;
-        }
-        return false;
-    }
-
-    bool IsTileAvailable(Tile tile, PlayerController ignore = null)
-    {
-        return !IsTileBlocked(tile) && !IsTileOccupied(tile, ignore);
-    }
-
     Tile GetStartTile()
     {
-        int startX = -1; 
+        int startX = -1;
         int startY = -1;
 
         if (startX >= 0 && startY >= 0)
         {
             Tile specificTile = board.GetTile(startX, startY);
-            if (specificTile != null && IsTileAvailable(specificTile))
+            if (specificTile != null && board.IsTileAvailable(specificTile))
             {
                 return specificTile;
             }
@@ -96,7 +76,7 @@ public class PlayerController : MonoBehaviour
 
         foreach (Tile tile in board.tiles)
         {
-            if (tile != null && IsTileAvailable(tile))
+            if (tile != null && board.IsTileAvailable(tile))
             {
                 validTiles.Add(tile);
             }
@@ -108,26 +88,6 @@ public class PlayerController : MonoBehaviour
         }
 
         return null;
-    }
-
-    bool IsTileBlocked(Tile tile)
-    {
-        Vector3 position = tile.transform.position;
-        bool hasObstacle = Physics.CheckBox(position, new Vector3(0.4f, 0.4f, 0.4f), Quaternion.identity, LayerMask.GetMask("Obstaculos"));
-        return hasObstacle;
-    }
-
-    bool PathIsClear(List<Tile> path, bool ignoreLastTile = false)
-    {
-        int count = path.Count;
-        if (ignoreLastTile)
-            count--;
-        for (int i = 0; i < count; i++)
-        {
-            if (!IsTileAvailable(path[i], this))
-                return false;
-        }
-        return true;
     }
 
     PlayerController GetPlayerOnTile(Tile tile)
@@ -156,13 +116,21 @@ public class PlayerController : MonoBehaviour
         int bestLength = int.MaxValue;
         Vector2Int enemyPos = target.currentTilePos;
 
-        List<Vector2Int> neighbors = GetNeighbors(enemyPos);
+        List<Vector2Int> neighbors = PathfindingUtility.GetNeighbors(enemyPos);
+
         foreach (Vector2Int pos in neighbors)
         {
             Tile candidate = board.GetTile(pos.x, pos.y);
             if (candidate == null || !candidate.discovered) continue;
-            if (!IsTileAvailable(candidate)) continue;
-            List<Tile> path = FindPath(currentTilePos, new Vector2Int(candidate.gridX, candidate.gridY), false);
+            if (!board.IsTileAvailable(candidate)) continue;
+            List<Tile> path = PathfindingUtility.FindPath(
+                board,
+                currentTilePos,
+                new Vector2Int(candidate.gridX, candidate.gridY),
+                allowEndOccupied: false,
+                (Tile t) => board.IsTileAvailable(t, this)  // Función lambda para verificar si el tile está disponible
+            );
+
             if (path != null && (path.Count - 1) <= maxMovement)
             {
                 if (path.Count < bestLength)
@@ -264,8 +232,15 @@ public class PlayerController : MonoBehaviour
                 }
                 else
                 {
-                    List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-                    if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
+                    List<Tile> path = PathfindingUtility.FindPath(
+                                    board,
+                                    currentTilePos,
+                                    new Vector2Int(tile.gridX, tile.gridY),
+                                    allowEndOccupied: false,
+                                    (Tile t) => board.IsTileAvailable(t, this)  // Función lambda para verificar si el tile está disponible
+                                );
+
+                    if (path != null && (path.Count - 1) <= maxMovement && board.PathIsClear(path, this))
                     {
                         ClearPathHighlight();
                         currentPath = path;
@@ -316,8 +291,15 @@ public class PlayerController : MonoBehaviour
                     }
                     else
                     {
-                        List<Tile> path = FindPath(currentTilePos, new Vector2Int(tile.gridX, tile.gridY));
-                        if (path != null && (path.Count - 1) <= maxMovement && PathIsClear(path))
+                        List<Tile> path = PathfindingUtility.FindPath(
+                        board,
+                        currentTilePos,
+                        new Vector2Int(tile.gridX, tile.gridY),
+                        allowEndOccupied: false,
+                        (Tile t) => board.IsTileAvailable(t, this)  // Función lambda que verifica si el tile está disponible
+                    );
+
+                        if (path != null && (path.Count - 1) <= maxMovement && board.PathIsClear(path, this))
                         {
                             StartCoroutine(MoveAlongPath(path));
                         }
@@ -403,7 +385,7 @@ public class PlayerController : MonoBehaviour
 
         foreach (Tile t in path)
         {
-            if (!IsTileAvailable(t, this))
+            if (!board.IsTileAvailable(t, this))
             {
                 Debug.Log("El camino se ha bloqueado en la casilla (" + t.gridX + ", " + t.gridY + "). Movimiento cancelado.");
                 animator.SetBool("isWalking", false);
@@ -455,86 +437,5 @@ public class PlayerController : MonoBehaviour
             highlightedEnemyTile.UnHighlight();
             highlightedEnemyTile = null;
         }
-    }
-
-    // ------------------------------
-    // ALGORITMO A* (permitiendo casilla final ocupada para ataques)
-    // ------------------------------
-    List<Tile> FindPath(Vector2Int start, Vector2Int end, bool allowEndOccupied = false)
-    {
-        if (start == end)
-        {
-            List<Tile> singlePath = new List<Tile> { board.GetTile(start.x, start.y) };
-            return singlePath;
-        }
-
-        Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
-        Dictionary<Vector2Int, int> costSoFar = new Dictionary<Vector2Int, int>();
-        PriorityQueue<Vector2Int> frontier = new PriorityQueue<Vector2Int>();
-        frontier.Enqueue(start, 0);
-        costSoFar[start] = 0;
-
-        while (frontier.Count > 0)
-        {
-            Vector2Int current = frontier.Dequeue();
-            if (current == end)
-            {
-                List<Tile> path = new List<Tile>();
-                Vector2Int cur = end;
-                while (cur != start)
-                {
-                    path.Add(board.GetTile(cur.x, cur.y));
-                    cur = cameFrom[cur];
-                }
-                path.Add(board.GetTile(start.x, start.y));
-                path.Reverse();
-                return path;
-            }
-
-            foreach (Vector2Int next in GetNeighbors(current))
-            {
-                Tile nextTile = board.GetTile(next.x, next.y);
-                if (nextTile == null)
-                    continue;
-
-                if (next != end || !allowEndOccupied)
-                {
-                    if (!IsTileAvailable(nextTile))
-                        continue;
-                }
-
-                int newCost = costSoFar[current] + 1;
-                if (!costSoFar.ContainsKey(next) || newCost < costSoFar[next])
-                {
-                    costSoFar[next] = newCost;
-                    int priority = newCost + Heuristic(next, end);
-                    frontier.Enqueue(next, priority);
-                    cameFrom[next] = current;
-                }
-            }
-        }
-        return null;
-    }
-
-    int Heuristic(Vector2Int a, Vector2Int b)
-    {
-        int dx = Mathf.Abs(a.x - b.x);
-        int dy = Mathf.Abs(a.y - b.y);
-        return Mathf.Max(dx, dy);
-    }
-
-    List<Vector2Int> GetNeighbors(Vector2Int pos)
-    {
-        List<Vector2Int> neighbors = new List<Vector2Int> {
-            new Vector2Int(pos.x + 1, pos.y),
-            new Vector2Int(pos.x - 1, pos.y),
-            new Vector2Int(pos.x, pos.y + 1),
-            new Vector2Int(pos.x, pos.y - 1),
-            new Vector2Int(pos.x + 1, pos.y + 1),
-            new Vector2Int(pos.x + 1, pos.y - 1),
-            new Vector2Int(pos.x - 1, pos.y + 1),
-            new Vector2Int(pos.x - 1, pos.y - 1)
-        };
-        return neighbors;
     }
 }
