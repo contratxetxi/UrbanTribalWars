@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 
 public class PlayerController : MonoBehaviour
@@ -12,9 +13,15 @@ public class PlayerController : MonoBehaviour
 
     public bool isActive = false;
 
+    [SerializeField] private TextMeshProUGUI movementText;
+
     private Vector2Int currentTilePos;    // Posición actual del jugador en la cuadrícula
     private List<Tile> currentPath;         // Camino actualmente resaltado
     private bool isMoving = false;          // Indica si el jugador está en movimiento
+
+    // Variables para el sistema de turnos
+    private int remainingMovement;        // Movimientos restantes en el turno actual
+    private GameManager gameManager;      // Referencia al GameManager para finalizar turnos
 
     // Tile del enemigo que se resaltó (si lo hay)
     private Tile highlightedEnemyTile = null;
@@ -26,6 +33,12 @@ public class PlayerController : MonoBehaviour
         // Ignorar colisiones entre jugadores (asegúrate que todos los jugadores estén en el layer "Players")
         Physics.IgnoreLayerCollision(LayerMask.NameToLayer("Players"), LayerMask.NameToLayer("Players"), true);
 
+        // Obtener referencia al GameManager
+        gameManager = FindFirstObjectByType<GameManager>();
+
+        // Inicializar movimientos restantes
+        remainingMovement = maxMovement;
+        UpdateMovementUI();
         // Esperar hasta que el tablero esté generado
         while (board.tiles == null || board.tiles.Length == 0 || !board.IsBoardFullyGenerated())
         {
@@ -131,7 +144,7 @@ public class PlayerController : MonoBehaviour
                 (Tile t) => board.IsTileAvailable(t, this)  // Función lambda para verificar si el tile está disponible
             );
 
-            if (path != null && (path.Count - 1) <= maxMovement)
+            if (path != null && (path.Count - 1) <= remainingMovement)  // Usar remainingMovement en lugar de maxMovement
             {
                 if (path.Count < bestLength)
                 {
@@ -166,9 +179,17 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
+        // Si no quedan movimientos, no mostrar caminos
+        if (remainingMovement <= 0)
+        {
+            ClearPathHighlight();
+            return;
+        }
+
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
-        if (Physics.Raycast(ray, out hit))
+        int tileMask = LayerMask.GetMask("Tiles");
+        if (Physics.Raycast(ray, out hit, 100f, tileMask))
         {
             PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
             if (targetPlayer != null && targetPlayer != this)
@@ -240,7 +261,7 @@ public class PlayerController : MonoBehaviour
                                     (Tile t) => board.IsTileAvailable(t, this)  // Función lambda para verificar si el tile está disponible
                                 );
 
-                    if (path != null && (path.Count - 1) <= maxMovement && board.PathIsClear(path, this))
+                    if (path != null && (path.Count - 1) <= remainingMovement && board.PathIsClear(path, this))  // Usar remainingMovement
                     {
                         ClearPathHighlight();
                         currentPath = path;
@@ -260,9 +281,16 @@ public class PlayerController : MonoBehaviour
     {
         if (isMoving) return;
 
+        // Si no quedan movimientos, no permitir acciones
+        if (remainingMovement <= 0)
+        {
+            return;
+        }
+
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
-        if (Physics.Raycast(ray, out hit))
+        int tileMask = LayerMask.GetMask("Tiles");
+        if (Physics.Raycast(ray, out hit, 100f, tileMask))
         {
             PlayerController targetPlayer = hit.collider.GetComponent<PlayerController>();
             if (targetPlayer != null && targetPlayer != this)
@@ -299,7 +327,7 @@ public class PlayerController : MonoBehaviour
                         (Tile t) => board.IsTileAvailable(t, this)  // Función lambda que verifica si el tile está disponible
                     );
 
-                        if (path != null && (path.Count - 1) <= maxMovement && board.PathIsClear(path, this))
+                        if (path != null && (path.Count - 1) <= remainingMovement && board.PathIsClear(path, this))  // Usar remainingMovement
                         {
                             StartCoroutine(MoveAlongPath(path));
                         }
@@ -309,11 +337,22 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+
+    private void UpdateMovementUI()
+    {
+        // Si no has asignado el Text en el Inspector, evita null references
+        if (movementText != null)
+        {
+            movementText.text = "Mov: " + remainingMovement;
+        }
+    }
     // Movimiento y ataque sin comprobar rango (se ataca siempre que se active el camino de ataque).
     IEnumerator MoveAndAttack(List<Tile> path, PlayerController target)
     {
         isMoving = true;
         animator.SetBool("isWalking", true);
+
+        int tilesTraversed = 0;
 
         if (path.Count == 0)
         {
@@ -343,10 +382,16 @@ public class PlayerController : MonoBehaviour
                     transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
                     yield return null;
                 }
+
                 currentTilePos = new Vector2Int(t.gridX, t.gridY);
                 board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
+
+                tilesTraversed++;
             }
 
+            // Reducir los movimientos restantes
+            remainingMovement -= tilesTraversed;
+            UpdateMovementUI();
             Vector3 finalDirection = target.transform.position - transform.position;
             finalDirection.y = 0f;
             if (finalDirection.sqrMagnitude > 0.001f)
@@ -360,6 +405,12 @@ public class PlayerController : MonoBehaviour
 
         // Se ataca siempre, independientemente de la distancia, ya que se basa en el tile ocupado.
         StartCoroutine(Attack(target));
+
+        // Comprobar si se deben finalizar el turno
+        if (remainingMovement <= 0)
+        {
+            StartCoroutine(EndTurnAfterDelay(1.5f));  // Pequeño retraso después del ataque
+        }
     }
 
     IEnumerator Attack(PlayerController target)
@@ -368,6 +419,17 @@ public class PlayerController : MonoBehaviour
         yield return new WaitForSeconds(0.5f);
         target.TakeDamage();
         yield return new WaitForSeconds(0.5f);
+
+        // FORZAR AL JUGADOR AL CENTRO DEL TILE
+        Vector3 tileCenter = board.GetTile(currentTilePos.x, currentTilePos.y).transform.position;
+        tileCenter.y = transform.position.y; // Mantenemos la altura del jugador
+        transform.position = tileCenter;
+
+        // El ataque siempre consume todos los movimientos restantes
+        remainingMovement = 0;
+        UpdateMovementUI();
+        // Finalizar turno después del ataque
+        StartCoroutine(EndTurnAfterDelay(1.0f));
     }
 
     public void TakeDamage()
@@ -383,6 +445,8 @@ public class PlayerController : MonoBehaviour
         Rigidbody rb = GetComponent<Rigidbody>();
         animator.SetBool("isWalking", true);
 
+        int tilesTraversed = 0;
+
         foreach (Tile t in path)
         {
             if (!board.IsTileAvailable(t, this))
@@ -391,6 +455,16 @@ public class PlayerController : MonoBehaviour
                 animator.SetBool("isWalking", false);
                 isMoving = false;
                 ClearPathHighlight();
+
+                // Reducir movimientos por el camino parcial recorrido
+                remainingMovement -= tilesTraversed;
+                UpdateMovementUI();
+                // Verificar si se acabaron los movimientos
+                if (remainingMovement <= 0)
+                {
+                    StartCoroutine(EndTurnAfterDelay(0.5f));
+                }
+
                 yield break;
             }
 
@@ -411,15 +485,48 @@ public class PlayerController : MonoBehaviour
                 yield return null;
             }
 
+
+
             rb.MovePosition(targetPos);
             currentTilePos = new Vector2Int(t.gridX, t.gridY);
             board.RevealTilesAt(currentTilePos.x, currentTilePos.y, revealRadius);
+
+            tilesTraversed++;
         }
 
+        // Reducir los movimientos restantes según las casillas recorridas
+        remainingMovement -= (path.Count - 1);  // -1 porque la casilla inicial no cuenta como movimiento
+        UpdateMovementUI();
         yield return new WaitForSeconds(0.1f);
         animator.SetBool("isWalking", false);
         isMoving = false;
         ClearPathHighlight();
+
+        // Verificar si se acabaron los movimientos
+        if (remainingMovement <= 0)
+        {
+            StartCoroutine(EndTurnAfterDelay(0.5f));
+        }
+    }
+
+    IEnumerator EndTurnAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (gameManager != null)
+        {
+            gameManager.EndTurn();
+        }
+    }
+
+    // Método para ser llamado cuando comienza el turno del jugador
+    public void StartTurn()
+    {
+        isActive = true;
+        remainingMovement = maxMovement;  // Restaurar movimientos al inicio del turno
+        UpdateMovementUI();
+        // Opcional: Alguna animación o efecto visual para indicar inicio de turno
+        Debug.Log(name + " inicia su turno con " + remainingMovement + " movimientos disponibles.");
     }
 
     void ClearPathHighlight()

@@ -1,25 +1,23 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI; // Para la UI
 
 public class GameManager : MonoBehaviour
 {
     public GameObject playerPrefab;
-
     public BoardManager boardManager;
-
     public CameraController cameraController;
-
-    // private GameObject playerInstance;
+    
+    // Referencia al objeto UI para mostrar información del turno actual (opcional)
+    public Text turnInfoText;
 
     private PlayerController[] players = new PlayerController[2];
     private int currentPlayerIndex = 0;
 
     void Start()
     {
-        // StartCoroutine(WaitForBoardAndSpawnPlayer());
         StartCoroutine(InitializePlayers());
     }
-
 
     IEnumerator InitializePlayers()
     {
@@ -43,10 +41,10 @@ public class GameManager : MonoBehaviour
 
             players[0] = player1GO.GetComponent<PlayerController>();
             players[0].SetBoardManager(boardManager);
+            player1GO.name = "Jugador 1";
         }
 
         // 2) Instanciar al segundo jugador
-        //    (Podrías usar otro prefab, o el mismo. Aquí uso el mismo para simplificar)
         Tile startTile2 = GetStartTile();
         if (startTile2 != null)
         {
@@ -58,16 +56,19 @@ public class GameManager : MonoBehaviour
 
             players[1] = player2GO.GetComponent<PlayerController>();
             players[1].SetBoardManager(boardManager);
+            player2GO.name = "Jugador 2";
         }
 
-        // 3) Activar sólo al primer jugador y situar la cámara sobre él
-        players[0].isActive = true;
-        players[1].isActive = false;
+        // 3) Iniciar el primer turno
+        StartPlayerTurn(0);
 
         if (cameraController != null)
         {
             cameraController.SetPlayer(players[0].transform);
         }
+        
+        // Actualizar información del turno en UI
+        UpdateTurnInfo();
     }
 
     Tile GetStartTile()
@@ -91,15 +92,45 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        // Como ejemplo: si se pulsa la tecla "T", se acaba el turno actual.
+        // Mantener opción de terminar turno manualmente con la tecla T
         if (Input.GetKeyDown(KeyCode.T))
         {
             EndTurn();
         }
     }
 
-    // Cambia el turno al otro jugador
-    void EndTurn()
+    // Método que inicia el turno de un jugador específico
+    private void StartPlayerTurn(int playerIndex)
+    {
+        currentPlayerIndex = playerIndex;
+        
+        // Activar al jugador del turno actual
+        for (int i = 0; i < players.Length; i++)
+        {
+            if (i == currentPlayerIndex)
+            {
+                players[i].StartTurn();  // Nuevo método en PlayerController
+            }
+            else
+            {
+                players[i].isActive = false;
+            }
+        }
+        
+        // Mover la cámara al jugador activo
+        if (cameraController != null)
+        {
+            cameraController.SetPlayer(players[currentPlayerIndex].transform);
+        }
+        
+        // Actualizar UI
+        UpdateTurnInfo();
+        
+        Debug.Log("Comienza el turno del " + players[currentPlayerIndex].name);
+    }
+
+    // Cambia el turno al otro jugador - ahora es público para ser llamado desde PlayerController
+    public void EndTurn()
     {
         // Desactivar al jugador actual
         players[currentPlayerIndex].isActive = false;
@@ -107,15 +138,18 @@ public class GameManager : MonoBehaviour
         // Cambiar el índice (si era 0, pasa a 1; si era 1, pasa a 0)
         currentPlayerIndex = 1 - currentPlayerIndex;
 
-        // Activar al nuevo jugador
-        players[currentPlayerIndex].isActive = true;
-
-        // Mover la cámara al jugador que entra en turno
-        if (cameraController != null)
+        // Iniciar turno del nuevo jugador
+        StartPlayerTurn(currentPlayerIndex);
+        
+        Debug.Log("Cambio de turno al " + players[currentPlayerIndex].name);
+    }
+    
+    // Actualiza la información del turno en la UI
+    private void UpdateTurnInfo()
+    {
+        if (turnInfoText != null)
         {
-            cameraController.SetPlayer(players[currentPlayerIndex].transform);
+            turnInfoText.text = "Turno: " + players[currentPlayerIndex].name;
         }
     }
-
 }
-

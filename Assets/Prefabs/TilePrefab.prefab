@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 8269722767527028399}
   - component: {fileID: 2614124832993895769}
   - component: {fileID: 1776148137437803831}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: TilePrefab
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -124,4 +124,3 @@ MonoBehaviour:
   gridY: 0
   tileSize: 1
   discovered: 0
-  highlightColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
